@@ -1,0 +1,4 @@
+- Maintain cost factor ratio
+  - Set some idea cost ratio, spawn builders while current cost is lower than that
+- "KYS" method
+  - Needs above
