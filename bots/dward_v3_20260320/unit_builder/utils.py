@@ -1,5 +1,5 @@
 from enum import Enum
-from cambc import Direction, Environment, GameConstants, Position
+from cambc import Direction, Environment, GameConstants, Position, EntityType
 
 DIRECTIONS = [d for d in Direction if d != Direction.CENTRE]
 CARD_DIRECTIONS = [Direction.NORTH, Direction.EAST,
@@ -23,10 +23,10 @@ def scan_surroundings(self):
             self.map_mem[y][x] = {}
 
             if on_vision_boundary(self, pos):
-                self.bldr_vsn_bndry.add(pos)
+                self.vsn_bndry.add(pos)
 
-        if not on_vision_boundary(self, pos) and pos in self.bldr_vsn_bndry:
-            self.bldr_vsn_bndry.remove(pos)
+        if not on_vision_boundary(self, pos) and pos in self.vsn_bndry:
+            self.vsn_bndry.remove(pos)
 
         env = self.c.get_tile_env((x, y))
         self.map_mem[y][x]['Environment'] = env
@@ -85,4 +85,55 @@ def on_vision_boundary(self, pos):
         return True
     else:
         return False
+
+
+def is_core(self, pos: Position) -> bool:
+    core_id = self.c.get_tile_building_id(pos)
+    return core_id is not None and self.c.get_entity_type(core_id) == EntityType.CORE
+
+
+def get_center_of_core(self, start_pos: Position) -> Position:
+    """Get center of core given any other tile that the core also occupies"""
+
+    assert is_core(self, start_pos), (
+        f'called `get_center_of_core()` on non-core tile: {start_pos}'
+    )
+
+    # BFS search for center of core
+    Q = [start_pos]
+    V = set(Q)
+    while Q:
+        cur = Q[0]
+        Q = Q[1:]
+        core_count = 0
+
+        x, y = cur
+        for d in CARD_DIRECTIONS:
+            dx, dy = d.delta()
+            xx = x + dx
+            yy = y + dy
+            pos2 = Position(xx, yy)
+
+            if bounds(self, xx, yy) and is_core(self, pos2):
+                core_count += 1
+                if pos2 not in V:
+                    Q.append(pos2)
+                    V.add(pos2)
+
+        if core_count == 4:
+            return cur
+
+    raise AssertionError(f'couldn\'t find center of core starting at {start_pos}')
+
+
+def yx_to_pos(coords: tuple) -> Position:
+    return Position(coords[1], coords[0])
+
+
+def can_afford(self, base_cost: tuple[int, int]) -> bool:
+    ti, ax = self.c.get_global_resources()
+    have_ti = base_cost[0] * (self.c.get_scale_percent() / 100) <= ti
+    have_ax = base_cost[1] * (self.c.get_scale_percent() / 100) <= ax
+    return have_ti and have_ax
+
 

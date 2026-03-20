@@ -2,3 +2,10 @@
   - Set some idea cost ratio, spawn builders while current cost is lower than that
 - "KYS" method
   - Needs above
+
+--- 20260320
+
+- Connect bridges to other bridges
+- Defend the base?
+- Attack enemy infrastructure
+- Attack enemy core
