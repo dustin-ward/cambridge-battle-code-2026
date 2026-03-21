@@ -1,6 +1,7 @@
-from cambc import Controller, EntityType, Position
+from cambc import Controller, Direction, EntityType, Position
 
 from unit_core import run_core
+from unit_sentinel import run_sentinel
 import unit_builder
 
 
@@ -14,8 +15,9 @@ class Player:
         self.core_pos: Position = None      # Center position of the core
 
         # CORE
-        self.num_spawned: int = 0               # Number of builders spawned by core
-        self.prev_cost_scale: float = 100.0     # Cost scale from last turn
+        self.core_num_spawned: int = 0              # Number of builders spawned by core
+        self.core_spawned_defence: bool = False     # Has the core spawned a defence builder?
+        self.prev_cost_scale: float = 100.0         # Cost scale from last turn
 
         # BUILDER
         self.bldr_state: unit_builder.State = unit_builder.utils.State.EXPLORING
@@ -24,7 +26,12 @@ class Player:
         self.bldr_tgt_pth: list[tuple] = None   # Path to the target position
         self.bldr_exp_ignore: set = set()       # Positions to ignore during exploration phase
         self.bldr_mine_built: bool = False      # Has the harvester been built yet in mining phase?
+        self.bldr_bridge_finished: bool = False
+        self.bldr_last_conveyor_dir: Direction = None
         self.bldr_brdg_prv: Position = None     # Previous connection point for a bridge sequence
+        self.bldr_splitters_built: int = 0      # === Variables for defence builder ===
+        self.bldr_turrets_built: int = 0        # ...
+        self.bldr_foundries_built: int = 0      # ...
 
     def run(self, ct: Controller) -> None:
 
@@ -37,3 +44,5 @@ class Player:
             run_core(self)
         elif etype == EntityType.BUILDER_BOT:
             unit_builder.run_builder(self)
+        elif etype == EntityType.SENTINEL:
+            run_sentinel(self)

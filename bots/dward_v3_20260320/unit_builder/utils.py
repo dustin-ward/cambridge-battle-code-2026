@@ -6,6 +6,17 @@ CARD_DIRECTIONS = [Direction.NORTH, Direction.EAST,
                    Direction.SOUTH, Direction.WEST]
 ORES = [Environment.ORE_TITANIUM, Environment.ORE_AXIONITE]
 
+SPLITTER_DT = [
+    (-1, -2, Direction.SOUTH),
+    (2, -1, Direction.WEST),
+    (1, 2, Direction.NORTH),
+    (-2, -1, Direction.EAST),
+    (1, -2, Direction.SOUTH),
+    (2, 1, Direction.WEST),
+    (-1, 2, Direction.NORTH),
+    (-2, 1, Direction.EAST),
+]
+
 
 class State(Enum):
     EXPLORING = 0
@@ -19,7 +30,12 @@ def scan_surroundings(self):
     """
     for pos in self.c.get_nearby_tiles():
         (x, y) = pos
-        if self.map_mem[y][x] is None:
+        import sys
+        if y >= len(self.map_mem) or x >= len(self.map_mem[0]):
+            print(f'x = {x} y = {y}', file=sys.stderr)
+            print(f'map_height={self.map_height} map_width={self.map_width}', file=sys.stderr)
+            print(f'len(map_mem)={len(self.map_mem)} len(map_mem[0])={len(self.map_mem[0])}', file=sys.stderr)
+        if bounds(self, x, y) and self.map_mem[y][x] is None:
             self.map_mem[y][x] = {}
 
             if on_vision_boundary(self, pos):
@@ -40,7 +56,7 @@ def scan_surroundings(self):
             self.map_mem[y][x]['Team'] = self.c.get_team(building_id)
 
 
-def builder_move(self, pos: Position, build_conveyor=False) -> bool:
+def builder_move(self, pos: Position, build_conveyor=False, scan=True) -> bool:
     """Try to move to pos. Return T/F if success/fail"""
     dir = self.c.get_position().direction_to(pos)
     print(f'builder_move({pos},conv={build_conveyor}) -> {dir}')
@@ -48,7 +64,8 @@ def builder_move(self, pos: Position, build_conveyor=False) -> bool:
     distance = self.c.get_position().distance_squared(pos)
     assert distance <= GameConstants.ACTION_RADIUS_SQ, f'pos({pos}) not within moveable range!'
 
-    scan_surroundings(self)
+    if scan:
+        scan_surroundings(self)
 
     if build_conveyor:
         assert distance < GameConstants.ACTION_RADIUS_SQ, 'tried to build conveyor and move on diagonal!'
@@ -137,3 +154,37 @@ def can_afford(self, base_cost: tuple[int, int]) -> bool:
     return have_ti and have_ax
 
 
+def is_road(self, pos: Position):
+    building_id = self.c.get_tile_building_id(pos)
+    return building_id is not None and self.c.get_entity_type(building_id) == EntityType.ROAD
+
+
+def is_conveyor(self, pos: Position):
+    building_id = self.c.get_tile_building_id(pos)
+    return building_id is not None and self.c.get_entity_type(building_id) == EntityType.CONVEYOR
+
+
+def is_splitter(self, pos: Position):
+    building_id = self.c.get_tile_building_id(pos)
+    return building_id is not None and self.c.get_entity_type(building_id) == EntityType.SPLITTER
+
+
+def is_sentinel(self, pos: Position):
+    building_id = self.c.get_tile_building_id(pos)
+    return building_id is not None and self.c.get_entity_type(building_id) == EntityType.SENTINEL
+
+
+def is_foundry(self, pos: Position):
+    building_id = self.c.get_tile_building_id(pos)
+    return building_id is not None and self.c.get_entity_type(building_id) == EntityType.FOUNDRY
+
+
+def get_splitter_locations(self) -> list[tuple[Position, Direction]]:
+    ret = []
+    for dx, dy, dir in SPLITTER_DT:
+        x, y = self.core_pos
+        x += dx
+        y += dy
+        if bounds(self, x, y):
+            ret.append((yx_to_pos((y, x)), dir))
+    return ret

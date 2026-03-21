@@ -1,4 +1,4 @@
-from cambc import GameConstants, Position
+from cambc import GameConstants, Position, Direction
 
 from unit_builder.astar import AStar
 from unit_builder.naive_pathfinder import NaivePathfinder
@@ -11,7 +11,9 @@ def build_mine(self):
     self.bldr_exp_ignore = set()
 
     keep_state = True
-    if self.bldr_mine_built:
+    if self.bldr_bridge_finished:
+        keep_state = build_last_conveyor(self)
+    elif self.bldr_mine_built:
         keep_state = transport_to_core(self)
     else:
         keep_state = travel_to_ore(self)
@@ -22,6 +24,8 @@ def build_mine(self):
         self.bldr_tgt_pth = None
         self.bldr_failed_mvmt = 0
         self.bldr_mine_built = False
+        self.bldr_bridge_finished = False
+        self.bldr_last_conveyor_dir = None
         self.bldr_brdg_prv = None
         self.bldr_state = ut.State.EXPLORING
         return False
@@ -45,10 +49,17 @@ def travel_to_ore(self):
             self.bldr_mine_built = True
             print(f'built harvester at {self.bldr_tgt_pos}')
 
-            # Set the start of the bridge sequence to be current space
+            # Set the start of the bridge sequence to be a space beside the harvester
             # Then start building back towards the core
-            # TODO: Pick an optimal tile here
-            self.bldr_brdg_prv = self.c.get_position()
+            if distance == 1:
+                self.bldr_brdg_prv = self.c.get_position()
+            elif self.c.get_position().add(Direction.NORTH).distance_squared(self.bldr_tgt_pos) == 1:
+                self.bldr_brdg_prv = self.c.get_position().add(Direction.NORTH)
+            elif self.c.get_position().add(Direction.SOUTH).distance_squared(self.bldr_tgt_pos) == 1:
+                self.bldr_brdg_prv = self.c.get_position().add(Direction.SOUTH)
+            else:
+                raise AssertionError('can\'t find space adjacent to harvester')
+
             self.bldr_tgt_pos = self.core_pos
             self.bldr_tgt_pth = None
             return True
@@ -101,10 +112,15 @@ def travel_to_ore(self):
 def transport_to_core(self):
     print(f'transporting back to core. brdg_prv: {self.bldr_brdg_prv}')
 
-    # Figure out how to get back to the core
+    # Figure out how to get back to the nearest splitter
     if self.bldr_tgt_pth is None:
+        splitter_pos, dir = find_nearest_splitter(self)
+        print(f'nearest splitter: {splitter_pos}')
+        self.bldr_last_conveyor_dir = dir
+        self.bldr_tgt_pos = splitter_pos.add(dir.opposite())
+        print(f'building to: {self.bldr_tgt_pos}')
         pathfinder = AStar(self.map_height, self.map_width)
-        self.bldr_tgt_pth = pathfinder.search(self.map_mem, self.c.get_position(), self.core_pos)
+        self.bldr_tgt_pth = pathfinder.search(self.map_mem, self.c.get_position(), self.bldr_tgt_pos)
 
     # Couldn't find path...
     if not self.bldr_tgt_pth:
@@ -120,31 +136,17 @@ def transport_to_core(self):
             self.c.destroy(self.bldr_brdg_prv)
 
         # Going to build a bridge. Find where it should end
-        pth_idx = 3
-        brdg_len = 0
-        while pth_idx > 0:
-            if pth_idx >= len(self.bldr_tgt_pth):
-                pth_idx -= 1
-                continue
-            brdg_end = ut.yx_to_pos(self.bldr_tgt_pth[pth_idx])
-            brdg_len = self.bldr_brdg_prv.distance_squared(brdg_end)
-            if brdg_len > GameConstants.BRIDGE_TARGET_RADIUS_SQ:
-                pth_idx -= 1
-                continue
-            if brdg_end == self.core_pos:
-                pth_idx -= 1
-                continue
-            break
-
-        assert brdg_len <= GameConstants.BRIDGE_TARGET_RADIUS_SQ, 'invalid bridge target on path'
+        brdg_end = find_bridge_end(self)
+        print(f'bridge will end at: {brdg_end}')
 
         if self.c.can_build_bridge(self.bldr_brdg_prv, brdg_end) and ut.can_afford(self, GameConstants.BRIDGE_BASE_COST):
             self.c.build_bridge(self.bldr_brdg_prv, brdg_end)
             self.bldr_brdg_prv = brdg_end
 
-            if ut.is_core(self, brdg_end):
+            if brdg_end == self.bldr_tgt_pos:
                 # Finished! Go back to exploring
-                return False
+                self.bldr_bridge_finished = True
+                return True
         else:
             # Try again?
             return True
@@ -159,6 +161,72 @@ def transport_to_core(self):
     if not ut.builder_move(self, next_pos):
         print(f'blocked path to {self.bldr_tgt_pos}')
         self.bldr_tgt_pth = None
+
+        self.bldr_failed_mvmt += 1
+        if self.bldr_failed_mvmt > 3:
+            # Failed to find path 3 times. Give up
+            return False
+
+    return True
+
+
+def find_bridge_end(self):
+    brdg_end = None
+
+    # Prioritize the final tgt location
+    brdg_len = self.bldr_brdg_prv.distance_squared(self.bldr_tgt_pos)
+    if brdg_len <= GameConstants.BRIDGE_TARGET_RADIUS_SQ:
+        return self.bldr_tgt_pos
+
+    pth_idx = 3
+    while pth_idx > 0:
+        if pth_idx >= len(self.bldr_tgt_pth):
+            pth_idx -= 1
+            continue
+        brdg_end = ut.yx_to_pos(self.bldr_tgt_pth[pth_idx])
+        brdg_len = self.bldr_brdg_prv.distance_squared(brdg_end)
+        if brdg_len > GameConstants.BRIDGE_TARGET_RADIUS_SQ:
+            pth_idx -= 1
+            continue
+        if brdg_end == self.core_pos:
+            pth_idx -= 1
+            continue
+        break
+
+    assert brdg_len <= GameConstants.BRIDGE_TARGET_RADIUS_SQ, f'invalid bridge target on path. turn={self.c.get_current_round()}'
+    return brdg_end
+
+
+def find_nearest_splitter(self):
+    return min(ut.get_splitter_locations(self), key=lambda t: self.c.get_position().distance_squared(t[0]))
+
+
+def build_last_conveyor(self):
+    print('building last conveyor')
+    if ut.is_conveyor(self, self.bldr_tgt_pos):
+        print('already done!')
+        return False
+
+    # Try to build conveyor
+    if self.c.get_position().distance_squared(self.bldr_tgt_pos) <= GameConstants.ACTION_RADIUS_SQ:
+        # Remove any roads
+        if ut.is_road(self, self.bldr_tgt_pos):
+            if self.c.can_destroy(self.bldr_tgt_pos):
+                self.c.destroy(self.bldr_tgt_pos)
+
+        if self.c.can_build_conveyor(self.bldr_tgt_pos, self.bldr_last_conveyor_dir):
+            self.c.build_conveyor(self.bldr_tgt_pos, self.bldr_last_conveyor_dir)
+            return False
+        else:
+            print(f'couldn\'t build conveyor at {self.bldr_tgt_pos}')
+            return True
+
+    # Move to next pos on path
+    next_pos = ut.yx_to_pos(self.bldr_tgt_pth[0])
+    self.bldr_tgt_pth = self.bldr_tgt_pth[1:]
+
+    if not ut.builder_move(self, next_pos):
+        print(f'blocked path to {self.bldr_tgt_pos}')
 
         self.bldr_failed_mvmt += 1
         if self.bldr_failed_mvmt > 3:

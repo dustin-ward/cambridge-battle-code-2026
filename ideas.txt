@@ -6,6 +6,10 @@
 --- 20260320
 
 - Connect bridges to other bridges
-- Defend the base?
 - Attack enemy infrastructure
 - Attack enemy core
+
+--- BUGS
+
+- Invalid bridge length sometimes
+- Bad ID for the turrets

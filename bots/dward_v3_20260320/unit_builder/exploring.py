@@ -1,6 +1,6 @@
 import random
 
-from cambc import Position
+from cambc import Position, EntityType, GameConstants
 
 # from unit_builder.astar import AStar
 from unit_builder.naive_pathfinder import NaivePathfinder
@@ -14,6 +14,7 @@ def exploring(self):
     Depending on what it finds, a new state or 'mission' can be derived
     """
     print('STATE: Exploring...')
+    ut.scan_surroundings(self)
 
     # On first turn, take note of the coords for the core
     if self.core_pos is None:
@@ -27,6 +28,7 @@ def exploring(self):
 
         is_ore = False
         is_vacant = True
+        marker_val = -1
 
         env = self.c.get_tile_env(pos)
         if env in ut.ORES:
@@ -35,8 +37,10 @@ def exploring(self):
 
         building_id = self.c.get_tile_building_id(pos)
         if building_id is not None:
-            # ent = self.c.get_entity_type(building_id)
+            ent = self.c.get_entity_type(building_id)
             is_vacant = False
+            if ent == EntityType.MARKER:
+                marker_val = self.c.get_marker_value(building_id)
             # print(f'Found building at {pos}: {ent}')
 
         builder_id = self.c.get_tile_builder_bot_id(pos)
@@ -45,6 +49,17 @@ def exploring(self):
             # enemy = self.c.get_team(builder_id) != self.c.get_team()
             is_vacant = False
             # print(f'Found builder bot at {pos}: {ent} enemy={enemy}')
+
+        # Marker behaviour
+        if marker_val != -1:
+            # Defence mode
+            if marker_val == 7777 and self.c.get_position().distance_squared(pos) <= GameConstants.ACTION_RADIUS_SQ:
+                if self.c.can_destroy(pos):
+                    self.c.destroy(pos)
+                self.bldr_state = ut.State.BUILDING_DEFENCE
+                self.bldr_tgt_pos = pos
+                self.bldr_tgt_pth = None
+                return
 
         # Switch to mine mode
         if is_ore and is_vacant:
@@ -60,7 +75,6 @@ def exploring(self):
 
     # Choose a position on the boundary of this bots known map
     if self.bldr_tgt_pos is None:
-        ut.scan_surroundings(self)
         if len(self.vsn_bndry) > 0:
             self.bldr_tgt_pos = random.choice(list(self.vsn_bndry))
         else:
@@ -80,7 +94,7 @@ def exploring(self):
     next_pos = Position(next_pos[1], next_pos[0])
     self.bldr_tgt_pth = self.bldr_tgt_pth[1:]
 
-    if not ut.builder_move(self, next_pos):
+    if not ut.builder_move(self, next_pos, scan=False):
         self.bldr_tgt_pos = None
         self.bldr_tgt_pth = None
         return False
